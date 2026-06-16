@@ -1,77 +1,40 @@
-const express = require('express');
 const { MongoClient } = require('mongodb');
+const fs = require('fs');
 
-const app = express();
-const SECRET_KEY = process.env.BACKUP_SECRET_KEY || 'Spadebotbackup';
+const mongoUrl = process.env.MONGO_URL; 
 
-app.get('/get-data', async (req, res) => {
-    if (req.query.key !== SECRET_KEY) {
-        return res.status(403).json({ error: 'Unauthorized Access' });
+// This async wrapper runs automatically when required by index.js
+(async () => {
+    if (!mongoUrl) {
+        console.log("⚠️ Automated backup skipped: MONGO_URL is not set.");
+        return;
     }
-    
+
+    let client;
     try {
-        const client = new MongoClient(process.env.MONGO_URL);
+        client = new MongoClient(mongoUrl);
         await client.connect();
+        const db = client.db('VipBotDB'); 
         
         let dbDump = {};
         
-        try {
-            const adminDb = client.db().admin();
-            const dbList = await adminDb.listDatabases();
-            
-            for (let dbInfo of dbList.databases) {
-                if (['admin', 'local', 'config'].includes(dbInfo.name)) continue;
-                
-                const db = client.db(dbInfo.name);
-                const collections = await db.listCollections().toArray();
-                
-                for (let col of collections) {
-                    dbDump[`${dbInfo.name}_${col.name}`] = await db.collection(col.name).find({}).toArray();
-                }
-            }
-        } catch (err) {
-            const db = client.db();
-            const collections = await db.listCollections().toArray();
-            for (let col of collections) {
-                dbDump[col.name] = await db.collection(col.name).find({}).toArray();
-            }
+        // Safely await the collections
+        const collections = await db.listCollections().toArray();
+        
+        // Loop through and backup each collection without syntax errors
+        for (let col of collections) {
+            dbDump[col.name] = await db.collection(col.name).find({}).toArray();
         }
         
-        await client.close();
-        res.json(dbDump);
-        
-    } catch (error) {
-        res.status(500).json({ error: "Database fetch error: " + error.message });
-    }
-});
+        // Write backup to a local file
+        fs.writeFileSync('database_backup.json', JSON.stringify(dbDump, null, 2));
+        console.log("✅ Automated database backup completed successfully!");
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`✅ Universal Backup API running on port ${PORT}`);
-});
-            for (let col of collections) {
-                dbDump[col.name] = await db.collection(col.name).find({}).toArray();
-            }
+    } catch (error) {
+        console.error("❌ Backup Script Failed:", error);
+    } finally {
+        if (client) {
+            await client.close();
         }
-        
-        await client.close();
-        res.json(dbDump);
-        
-    } catch (error) {
-        res.status(500).json({ error: "Database fetch error: " + error.message });
     }
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`✅ Universal Backup API running on port ${PORT}`);
-});
-        res.status(500).json({ error: "Database fetch error: " + error.message });
-    }
-});
-
-// Railway port automatically assign karta hai, warna 3000 use karega
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`✅ Universal Backup API running on port ${PORT}`);
-});
+})();
