@@ -1,40 +1,47 @@
+const express = require('express');
 const { MongoClient } = require('mongodb');
-const fs = require('fs');
 
-const mongoUrl = process.env.MONGO_URL; 
+const app = express();
 
-// This async wrapper runs automatically when required by index.js
-(async () => {
-    if (!mongoUrl) {
-        console.log("⚠️ Automated backup skipped: MONGO_URL is not set.");
-        return;
+// Master Bot authentication key
+const SECRET_KEY = process.env.BACKUP_SECRET_KEY || 'Spadebotbackup';
+
+// Master Bot is URL pe request marega data lene ke liye
+app.get('/get-data', async (req, res) => {
+    // 1. Key Match Check
+    if (req.query.key !== SECRET_KEY) {
+        return res.status(403).json({ error: 'Unauthorized Access' });
     }
-
-    let client;
+    
     try {
-        client = new MongoClient(mongoUrl);
+        // 2. MongoDB Connect
+        const client = new MongoClient(process.env.MONGO_URL);
         await client.connect();
+        
+        // 3. Database detect aur select karna (VipBotDB default set hai)
         const db = client.db('VipBotDB'); 
+        const collections = await db.listCollections().toArray();
         
         let dbDump = {};
         
-        // Safely await the collections
-        const collections = await db.listCollections().toArray();
-        
-        // Loop through and backup each collection without syntax errors
+        // 4. Har collection ka data nikalna
         for (let col of collections) {
             dbDump[col.name] = await db.collection(col.name).find({}).toArray();
         }
         
-        // Write backup to a local file
-        fs.writeFileSync('database_backup.json', JSON.stringify(dbDump, null, 2));
-        console.log("✅ Automated database backup completed successfully!");
-
+        await client.close();
+        
+        // 5. Master Bot ko JSON format mein data bhejna
+        res.json(dbDump);
+        
     } catch (error) {
-        console.error("❌ Backup Script Failed:", error);
-    } finally {
-        if (client) {
-            await client.close();
-        }
+        console.error("Backup Fetch Error:", error);
+        res.status(500).json({ error: "Database fetch error: " + error.message });
     }
-})();
+});
+
+// Server start karna (Jo Master Bot ka intezar karega)
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`✅ Spade Backup API successfully running on port ${PORT}`);
+});
